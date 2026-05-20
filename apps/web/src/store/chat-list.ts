@@ -129,6 +129,15 @@ export interface SendMessageResult {
   restoreAttachments?: ChatAttachment[]
 }
 
+interface StartupSendFailure {
+  id: string
+  botId: string
+  sessionId: string
+  error: string
+  restoreInput: string
+  restoreAttachments?: ChatAttachment[]
+}
+
 class StreamFailureError extends Error {
   stage: SendMessageStage
 
@@ -142,6 +151,12 @@ class StreamFailureError extends Error {
 interface SessionMessageState {
   items: ChatMessage[]
   hasMoreOlder: boolean
+}
+
+interface EphemeralAssistantError {
+  content: string
+  timestamp: string
+  userText?: string
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -160,6 +175,7 @@ export const useChatStore = defineStore('chat', () => {
   const bots = ref<Bot[]>([])
   const overrideModelId = ref<string>('')
   const overrideReasoningEffort = ref<string>('')
+  const startupSendFailure = ref<StartupSendFailure | null>(null)
 
   // Bumps every time a fs-mutating tool call (write/edit/exec) finishes for the
   // current bot. File-manager components watch this to refresh their listings
@@ -187,7 +203,7 @@ export const useChatStore = defineStore('chat', () => {
   // Switching tabs saves/restores from here; the active session remains the
   // only live `messages` array rendered by ChatPane.
   const sessionMessageStates = new Map<string, SessionMessageState>()
-  const ephemeralAssistantErrors = new Map<string, string[]>()
+  const ephemeralAssistantErrors = new Map<string, EphemeralAssistantError[]>()
   const messageEventsStream = useRetryingStream()
 
   const activeSession = computed(() =>
@@ -527,7 +543,102 @@ export const useChatStore = defineStore('chat', () => {
     // Advance only. Restoring an older tab snapshot must not move the event
     // cursor backwards and replay unrelated stream events.
     for (const item of items) {
+      if (isEphemeralAssistantErrorTurn(item)) continue
       updateSince(item.timestamp)
+    }
+  }
+
+  function isEphemeralAssistantErrorTurn(item: ChatMessage): boolean {
+    return item.role === 'assistant' && item.id.startsWith('ephemeral-error-')
+  }
+
+  function ephemeralErrorId(sessionID: string, error: EphemeralAssistantError): string {
+    let hash = 0
+    const input = `${error.timestamp}:${error.content}`
+    for (let i = 0; i < input.length; i += 1) {
+      hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0
+    }
+    return `ephemeral-error-${sessionID}-${Math.abs(hash).toString(36)}`
+  }
+
+  function hasAssistantError(items: ChatMessage[], text: string): boolean {
+    return items.some(item =>
+      item.role === 'assistant'
+      && item.messages.some(block => block.type === 'error' && block.content === text),
+    )
+  }
+
+  function findAssistantTurnForEphemeralError(items: ChatMessage[], timestamp: string): ChatAssistantTurn | null {
+    const errorTime = Date.parse(timestamp)
+    let target: ChatAssistantTurn | null = null
+
+    for (const item of items) {
+      const itemTime = Date.parse(item.timestamp)
+      if (!Number.isNaN(errorTime) && !Number.isNaN(itemTime) && itemTime > errorTime) {
+        break
+      }
+      if (item.role === 'user') {
+        target = null
+        continue
+      }
+      if (item.role === 'assistant') {
+        target = item
+      }
+    }
+
+    return target
+  }
+
+  function findUserTurnBeforeAssistant(assistantTurn: ChatAssistantTurn): ChatUserTurn | null {
+    const index = messages.indexOf(assistantTurn)
+    if (index < 0) return null
+    for (let i = index - 1; i >= 0; i -= 1) {
+      const item = messages[i]
+      if (item?.role === 'user') return item
+    }
+    return null
+  }
+
+  function findAnchorUserIndex(items: ChatMessage[], error: EphemeralAssistantError): number {
+    const targetText = (error.userText ?? '').trim()
+    let fallback = -1
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const item = items[i]
+      if (item?.role !== 'user') continue
+      if (fallback < 0) fallback = i
+      if (targetText && item.text.trim() === targetText) return i
+    }
+    return fallback
+  }
+
+  function findAssistantAfterAnchor(items: ChatMessage[], anchorIndex: number): ChatAssistantTurn | null {
+    let target: ChatAssistantTurn | null = null
+    for (let i = anchorIndex + 1; i < items.length; i += 1) {
+      const item = items[i]
+      if (!item) continue
+      if (item.role === 'user') break
+      if (item.role === 'assistant') target = item
+    }
+    return target
+  }
+
+  function timestampAfter(value?: string): string | null {
+    const ts = Date.parse(value ?? '')
+    if (Number.isNaN(ts)) return null
+    return new Date(ts + 1).toISOString()
+  }
+
+  function createEphemeralErrorTurn(sessionID: string, error: EphemeralAssistantError, timestamp = error.timestamp): ChatAssistantTurn {
+    return {
+      id: ephemeralErrorId(sessionID, error),
+      role: 'assistant',
+      messages: [{
+        id: 0,
+        type: 'error',
+        content: error.content,
+      }],
+      timestamp,
+      streaming: false,
     }
   }
 
@@ -536,17 +647,26 @@ export const useChatStore = defineStore('chat', () => {
     if (!sid) return
     const errors = ephemeralAssistantErrors.get(sid)
     if (!errors?.length) return
-    const assistantTurn = [...items].reverse().find((item): item is ChatAssistantTurn => item.role === 'assistant')
-    if (!assistantTurn) return
     for (const error of errors) {
-      const text = error.trim()
+      const text = error.content.trim()
       if (!text) continue
-      if (assistantTurn.messages.some(block => block.type === 'error' && block.content === text)) continue
-      assistantTurn.messages.push({
-        id: nextAssistantMessageId(assistantTurn),
-        type: 'error',
-        content: text,
-      })
+      if (hasAssistantError(items, text)) continue
+
+      const anchorIndex = findAnchorUserIndex(items, error)
+      const assistantTurn = anchorIndex >= 0
+        ? findAssistantAfterAnchor(items, anchorIndex)
+        : findAssistantTurnForEphemeralError(items, error.timestamp)
+      if (assistantTurn) {
+        assistantTurn.messages.push({
+          id: nextAssistantMessageId(assistantTurn),
+          type: 'error',
+          content: text,
+        })
+      } else {
+        const insertAt = anchorIndex >= 0 ? anchorIndex + 1 : items.length
+        const displayTimestamp = timestampAfter(items[anchorIndex]?.timestamp) ?? error.timestamp
+        items.splice(insertAt, 0, createEphemeralErrorTurn(sid, { ...error, content: text }, displayTimestamp))
+      }
     }
   }
 
@@ -619,6 +739,7 @@ export const useChatStore = defineStore('chat', () => {
       hasMoreOlder: moreOlder,
     })
     for (const item of items) {
+      if (isEphemeralAssistantErrorTurn(item)) continue
       updateSince(item.timestamp)
     }
   }
@@ -714,25 +835,44 @@ export const useChatStore = defineStore('chat', () => {
     return turn.messages.some(block => block.type !== 'error')
   }
 
-  function rememberAssistantError(errorMessage: string) {
+  function rememberAssistantError(errorMessage: string, assistantTurn: ChatAssistantTurn) {
     const sid = (streamingSessionId.value ?? sessionId.value ?? '').trim()
     const text = errorMessage.trim()
     if (!sid || !text) return
     const current = ephemeralAssistantErrors.get(sid) ?? []
-    if (current.includes(text)) return
-    ephemeralAssistantErrors.set(sid, [...current, text].slice(-5))
+    if (current.some(item => item.content === text)) return
+    const anchorUser = findUserTurnBeforeAssistant(assistantTurn)
+    ephemeralAssistantErrors.set(sid, [...current, {
+      content: text,
+      timestamp: new Date().toISOString(),
+      userText: anchorUser?.text.trim() || undefined,
+    }].slice(-5))
   }
 
   function appendAssistantError(session: PendingAssistantStream, errorMessage: string) {
     const text = errorMessage.trim()
     if (!text) return
 
-    rememberAssistantError(text)
+    rememberAssistantError(text, session.assistantTurn)
     session.assistantTurn.messages.push({
       id: nextAssistantMessageId(session.assistantTurn),
       type: 'error',
       content: text,
     })
+  }
+
+  function rememberStartupSendFailure(failure: Omit<StartupSendFailure, 'id'>) {
+    startupSendFailure.value = {
+      ...failure,
+      id: nextId(),
+      restoreAttachments: failure.restoreAttachments ? [...failure.restoreAttachments] : undefined,
+    }
+  }
+
+  function clearStartupSendFailure(id?: string) {
+    if (!id || startupSendFailure.value?.id === id) {
+      startupSendFailure.value = null
+    }
   }
 
   function pruneEmptyAssistantTurnIfPending() {
@@ -771,18 +911,14 @@ export const useChatStore = defineStore('chat', () => {
         const stage: SendMessageStage = hasVisibleAssistantBlocks(session.assistantTurn) ? 'stream' : 'startup'
         if (stage === 'stream') {
           appendAssistantError(session, message)
-          session.assistantTurn.streaming = false
-          session.streamError = new StreamFailureError(message, stage)
         } else {
           const idx = messages.indexOf(session.assistantTurn)
           if (idx >= 0) messages.splice(idx, 1)
-          rejectPendingAssistantStream(new StreamFailureError(message, stage))
         }
+        rejectPendingAssistantStream(new StreamFailureError(message, stage))
         loading.value = false
-        if (stage === 'startup') {
-          streamingSessionId.value = null
-          abortFn = null
-        }
+        streamingSessionId.value = null
+        abortFn = null
         break
       }
     }
@@ -1293,12 +1429,16 @@ export const useChatStore = defineStore('chat', () => {
     loading.value = true
     let assistantTurn: ChatAssistantTurn | null = null
     let userTurn: ChatUserTurn | null = null
+    let sendBotId = ''
+    let sendSessionId = ''
 
     try {
       await ensureActiveSession()
 
       const bid = currentBotId.value!
       const sid = sessionId.value!
+      sendBotId = bid
+      sendSessionId = sid
       streamingSessionId.value = sid
 
       userTurn = createOptimisticUserTurn(trimmed, attachments)
@@ -1384,6 +1524,13 @@ export const useChatStore = defineStore('chat', () => {
       abortFn = null
       if (isAbort) return { ok: false, stage: 'stream', error: reason }
       if (stage === 'startup') {
+        rememberStartupSendFailure({
+          botId: sendBotId || currentBotId.value || '',
+          sessionId: sendSessionId || sessionId.value || '',
+          error: reason,
+          restoreInput: text,
+          restoreAttachments: attachments,
+        })
         return {
           ok: false,
           stage,
@@ -1465,6 +1612,7 @@ export const useChatStore = defineStore('chat', () => {
     initializing,
     overrideModelId,
     overrideReasoningEffort,
+    startupSendFailure,
     fsChangedAt,
     initialize,
     selectBot,
@@ -1482,6 +1630,7 @@ export const useChatStore = defineStore('chat', () => {
     loadOlderMessages,
     findMessageIdByExternalId,
     locateMessageByExternalId,
+    clearStartupSendFailure,
     abort,
   }
 })

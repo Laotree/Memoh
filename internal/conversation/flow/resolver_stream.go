@@ -171,16 +171,14 @@ func (r *Resolver) StreamChat(ctx context.Context, req conversation.ChatRequest)
 			}
 		}
 
-		// Intermediate persistence on abort/error: if stream ended after
-		// visible output, persist whatever partial messages we managed to
-		// capture. Startup failures with no visible output are left out of
-		// history so the Web UI can restore the draft instead.
+		// Intermediate persistence on abort/error: persist only concrete
+		// partial assistant/tool state. Failed sends without a terminal
+		// snapshot are treated as unsent so the Web UI can restore the draft
+		// without polluting history.
 		if !stored {
 			switch {
 			case hasSnapshot:
 				r.persistPartialResult(ctx, streamReq, rc, lastSnapshot.sdkMessages, toolCallCount, idleCancel.DidFire(), hasVisibleOutput)
-			case hasVisibleOutput:
-				r.persistUserOnlyResult(context.WithoutCancel(ctx), streamReq, rc)
 			default:
 				r.logger.Info("skip persisting failed startup stream",
 					slog.String("bot_id", streamReq.BotID),
@@ -320,8 +318,6 @@ func (r *Resolver) StreamChatWS(
 		switch {
 		case hasSnapshot:
 			r.persistPartialResult(ctx, req, rc, lastSnapshot.sdkMessages, toolCallCount, idleCancel.DidFire(), hasVisibleOutput)
-		case hasVisibleOutput:
-			r.persistUserOnlyResult(context.WithoutCancel(ctx), req, rc)
 		default:
 			r.logger.Info("skip persisting failed startup ws stream",
 				slog.String("bot_id", req.BotID),
@@ -360,6 +356,15 @@ func (r *Resolver) StreamChatWS(
 // indicates the context is large.
 func (r *Resolver) persistTerminalSnapshot(ctx context.Context, req conversation.ChatRequest, rc resolvedContext, snap terminalSnapshot) error {
 	outputMessages := sdkMessagesToModelMessages(snap.sdkMessages)
+	if !hasPersistableAssistantOutput(outputMessages) {
+		r.logger.Info("skip persisting terminal snapshot without assistant output",
+			slog.String("bot_id", req.BotID),
+			slog.String("chat_id", req.ChatID),
+			slog.Int("messages", len(outputMessages)),
+		)
+		return nil
+	}
+
 	roundMessages := prependUserMessage(req.Query, outputMessages)
 
 	if rc.injectedRecords != nil && len(*rc.injectedRecords) > 0 {
@@ -379,15 +384,24 @@ func (r *Resolver) persistTerminalSnapshot(ctx context.Context, req conversation
 	return nil
 }
 
+func hasPersistableAssistantOutput(messages []conversation.ModelMessage) bool {
+	for _, msg := range messages {
+		if strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") && !isEmptyAssistantMessage(msg) {
+			return true
+		}
+	}
+	return false
+}
+
 // persistPartialResult is the interrupt-path fallback. When the agent stream
 // was interrupted (provider error, user abort, idle timeout) and partial SDK
 // messages are available, those are persisted via the normal pipeline so
 // orphaned tool_calls get repaired with synthetic error tool_results, keeping
 // the conversation coherent for "ask the bot to continue".
 //
-// When no partial messages are available, startup failures are not persisted;
-// streams that already produced visible output keep at most the user turn so
-// the Web UI can show its temporary error block without creating history noise.
+// When no partial messages are available, failures are not persisted. The UI
+// can show temporary errors without committing a user-only history row for a
+// send that did not successfully produce an assistant turn.
 func (r *Resolver) persistPartialResult(
 	ctx context.Context,
 	req conversation.ChatRequest,
@@ -422,39 +436,21 @@ func (r *Resolver) persistPartialResult(
 			}
 			return
 		}
-		r.logger.Error("failed to persist partial agent messages, falling back to user-only result",
+		r.logger.Error("failed to persist partial agent messages",
 			slog.String("bot_id", req.BotID),
 			slog.Any("error", err),
 		)
 	}
 
-	if hasVisibleOutput {
-		r.persistUserOnlyResult(persistCtx, req, rc)
-	} else {
-		r.logger.Info("skip persisting partial result without visible output",
-			slog.String("bot_id", req.BotID),
-			slog.Int("tool_calls", toolCallCount),
-			slog.Bool("idle_timeout", wasIdleTimeout),
-		)
-	}
+	r.logger.Info("skip persisting failed stream without terminal snapshot",
+		slog.String("bot_id", req.BotID),
+		slog.Int("tool_calls", toolCallCount),
+		slog.Bool("idle_timeout", wasIdleTimeout),
+		slog.Bool("visible_output", hasVisibleOutput),
+	)
 
 	if rc.estimatedTokens > 0 {
 		r.maybeCompact(persistCtx, req, rc, rc.estimatedTokens)
-	}
-}
-
-func (r *Resolver) persistUserOnlyResult(ctx context.Context, req conversation.ChatRequest, rc resolvedContext) {
-	query := strings.TrimSpace(req.Query)
-	if query == "" {
-		return
-	}
-	if err := r.storeRound(ctx, req, []conversation.ModelMessage{
-		{Role: "user", Content: conversation.NewTextContent(query)},
-	}, rc.model.ID); err != nil {
-		r.logger.Error("failed to persist user-only interrupted stream",
-			slog.String("bot_id", req.BotID),
-			slog.Any("error", err),
-		)
 	}
 }
 

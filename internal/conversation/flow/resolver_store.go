@@ -74,6 +74,10 @@ func isEmptyAssistantMessage(m conversation.ModelMessage) bool {
 	if text != "" {
 		return false
 	}
+	var plain string
+	if err := json.Unmarshal(m.Content, &plain); err == nil && strings.TrimSpace(plain) == "" {
+		return true
+	}
 	// Check if content is empty array "[]" or null/empty
 	content := strings.TrimSpace(string(m.Content))
 	return content == "" || content == "[]" || content == "null"

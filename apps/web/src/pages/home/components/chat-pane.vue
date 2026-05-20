@@ -303,7 +303,8 @@ const {
   loadingChats,
   hasMoreOlder,
   overrideModelId,
-  overrideReasoningEffort
+  overrideReasoningEffort,
+  startupSendFailure
 } = storeToRefs(chatStore)
 
 const isActive = computed(() => props.active !== false)
@@ -439,6 +440,24 @@ watch(inputDraftKey, (nextKey, previousKey) => {
 watch(inputText, (text) => {
   saveInputDraft(inputDraftKey.value, text)
 })
+
+watch([
+  startupSendFailure,
+  currentBotId,
+  () => chatStore.sessionId,
+  () => props.tabId,
+  isActive,
+], ([failure]) => {
+  if (!failure || !isActive.value) return
+  if (failure.botId && failure.botId !== currentBotId.value) return
+  if (failure.sessionId && failure.sessionId !== chatStore.sessionId) return
+  if (failure.sessionId && props.tabId !== `chat:${failure.sessionId}`) return
+
+  inputText.value = failure.restoreInput
+  saveInputDraft(inputDraftKey.value, failure.restoreInput)
+  composerError.value = failure.error || t('chat.sendFailed')
+  chatStore.clearStartupSendFailure(failure.id)
+}, { immediate: true })
 
 const elNode = useTemplateRef('scrollContainer')
 // Resolve the real scrollable viewport via data-slot to avoid coupling to the
@@ -762,7 +781,9 @@ async function handleSend() {
 
   const result = await chatStore.sendMessage(text, attachments)
   if (!result.ok && result.stage === 'startup') {
-    inputText.value = result.restoreInput ?? text
+    const restoreInput = result.restoreInput ?? text
+    inputText.value = restoreInput
+    saveInputDraft(inputDraftKey.value || sentDraftKey, restoreInput)
     pendingFiles.value = files
     composerError.value = result.error || t('chat.sendFailed')
   }
