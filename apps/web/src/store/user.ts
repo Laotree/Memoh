@@ -1,9 +1,12 @@
 import { defineStore } from 'pinia'
-import { reactive, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 import { useRouter } from 'vue-router'
 import { useQueryCache } from '@pinia/colada'
+import { getUsersMe } from '@memohai/sdk'
 import { notifyAuthSessionCleared, onAuthSessionCleared, type AuthSessionClearReason } from '@/lib/auth-session'
+import { resetOnboardingState } from '@/composables/useOnboarding'
+import { ONBOARDING_KEYS } from '@/pages/onboarding/constants'
 
 export interface UserInfo {
   id: string;
@@ -27,6 +30,42 @@ export const useUserStore = defineStore(
     })
 
     const localToken = useLocalStorage('token', '')
+    const onboardingCompleted = ref(false)
+
+    let _meChecked = false
+    let _pendingFetch: Promise<boolean> | null = null
+
+    async function fetchMe(): Promise<boolean> {
+      if (_meChecked) return true
+      if (onboardingCompleted.value) {
+        _meChecked = true
+        return true
+      }
+      if (_pendingFetch) return await _pendingFetch
+      _pendingFetch = (async (): Promise<boolean> => {
+        try {
+          const { data } = await getUsersMe({ throwOnError: true })
+          if (!data) {
+            return false
+          }
+          userInfo.id = data.id ?? ''
+          userInfo.username = data.username ?? ''
+          userInfo.role = data.role ?? ''
+          userInfo.displayName = data.display_name ?? ''
+          userInfo.avatarUrl = data.avatar_url ?? ''
+          userInfo.timezone = data.timezone || 'UTC'
+          onboardingCompleted.value = data.metadata?.onboarding_completed === true
+          _meChecked = true
+          return true
+        } catch (error) {
+          console.warn('Failed to fetch current user:', error)
+          return false
+        } finally {
+          _pendingFetch = null
+        }
+      })()
+      return await _pendingFetch
+    }
 
     const resetUserInfo = () => {
       for (const key of Object.keys(userInfo) as (keyof UserInfo)[]) {
@@ -53,6 +92,12 @@ export const useUserStore = defineStore(
 
     const login = (userData: UserInfo, token: string) => {
       clearFrontendSessionState('login')
+      // A new login must not inherit the previous user's onboarding state. The
+      // flag is no longer persisted, but an in-memory value from a prior user
+      // could otherwise leak across a switch that skips logout — force a fresh
+      // server check.
+      onboardingCompleted.value = false
+      _meChecked = false
       localToken.value = token
       for (const key of Object.keys(userData) as (keyof UserInfo)[]) {
         userInfo[key] = userData[key]
@@ -68,17 +113,34 @@ export const useUserStore = defineStore(
       }
     }
 
+    const resetOnboarding = () => {
+      onboardingCompleted.value = false
+      _meChecked = false
+      _pendingFetch = null
+      localStorage.removeItem(ONBOARDING_KEYS.introSeen)
+      // Clear per-session onboarding artifacts too: createdBotId / providerAddedCount
+      // live in sessionStorage and survive logout within the same tab, so without
+      // this the next user to onboard in this tab would be redirected to the previous
+      // user's bot (complete() consumes createdBotId) and see stale provider state.
+      sessionStorage.removeItem(ONBOARDING_KEYS.createdBotId)
+      sessionStorage.removeItem(ONBOARDING_KEYS.providerAddedCount)
+      resetOnboardingState()
+    }
+
     const exitLogin = () => {
       clearFrontendSessionState('logout')
       localToken.value = ''
+      resetOnboarding()
       resetUserInfo()
     }
+
     const router = useRouter()
     watch(
       localToken,
       () => {
         if (!localToken.value) {
           clearFrontendSessionState('token-cleared')
+          resetOnboarding()
           resetUserInfo()
           if (router.currentRoute.value.name !== 'Login') {
             void router.replace({ name: 'Login' })
@@ -93,16 +155,25 @@ export const useUserStore = defineStore(
       if (reason !== 'unauthorized') return
       clearQueryCache()
       localToken.value = ''
+      resetOnboarding()
       resetUserInfo()
     })
     return {
       userInfo,
+      onboardingCompleted,
+      fetchMe,
       login,
       patchUserInfo,
       exitLogin,
     }
   },
   {
-    persist: true,
+    persist: {
+      // Do NOT persist `onboardingCompleted`: a localStorage value can be stale
+      // across user switches or pushed between machines by browser sync, which
+      // would skip onboarding for the wrong user. It is verified against the
+      // server once per session via fetchMe() and cached in memory (_meChecked).
+      pick: ['userInfo'],
+    },
   },
 )

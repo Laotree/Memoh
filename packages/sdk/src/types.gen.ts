@@ -12,6 +12,9 @@ export type AccountsAccount = {
     id?: string;
     is_active?: boolean;
     last_login_at?: string;
+    metadata?: {
+        [key: string]: unknown;
+    };
     role?: string;
     timezone?: string;
     updated_at?: string;
@@ -48,9 +51,14 @@ export type AccountsUpdatePasswordRequest = {
     new_password?: string;
 };
 
+export type AccountsUpdateProfileMetadata = {
+    onboarding_completed?: boolean;
+};
+
 export type AccountsUpdateProfileRequest = {
     avatar_url?: string;
     display_name?: string;
+    metadata?: AccountsUpdateProfileMetadata;
     timezone?: string;
 };
 
@@ -1667,7 +1675,10 @@ export type ProvidersTestResponse = {
     latency_ms?: number;
     message?: string;
     reachable?: boolean;
+    status?: ProvidersTestStatus;
 };
+
+export type ProvidersTestStatus = 'ok' | 'auth_error' | 'error';
 
 export type ProvidersUpdateRequest = {
     client_type?: string;

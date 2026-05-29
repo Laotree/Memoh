@@ -9773,6 +9773,10 @@ const docTemplate = `{
                 "last_login_at": {
                     "type": "string"
                 },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "role": {
                     "type": "string"
                 },
@@ -9860,6 +9864,14 @@ const docTemplate = `{
                 }
             }
         },
+        "accounts.UpdateProfileMetadata": {
+            "type": "object",
+            "properties": {
+                "onboarding_completed": {
+                    "type": "boolean"
+                }
+            }
+        },
         "accounts.UpdateProfileRequest": {
             "type": "object",
             "properties": {
@@ -9868,6 +9880,9 @@ const docTemplate = `{
                 },
                 "display_name": {
                     "type": "string"
+                },
+                "metadata": {
+                    "$ref": "#/definitions/accounts.UpdateProfileMetadata"
                 },
                 "timezone": {
                     "type": "string"
@@ -13948,8 +13963,24 @@ const docTemplate = `{
                 },
                 "reachable": {
                     "type": "boolean"
+                },
+                "status": {
+                    "$ref": "#/definitions/providers.TestStatus"
                 }
             }
+        },
+        "providers.TestStatus": {
+            "type": "string",
+            "enum": [
+                "ok",
+                "auth_error",
+                "error"
+            ],
+            "x-enum-varnames": [
+                "TestStatusOK",
+                "TestStatusAuthError",
+                "TestStatusError"
+            ]
         },
         "providers.UpdateRequest": {
             "type": "object",

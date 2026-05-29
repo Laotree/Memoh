@@ -7,8 +7,14 @@ import { h } from 'vue'
 import { RouterView } from 'vue-router'
 import { i18nRef } from './i18n'
 import { useUserStore } from '@/store/user'
+import { ensureOnboarding } from '@/router-guards/onboarding'
 
 const routes = [
+  {
+    path: '/onboarding',
+    name: 'onboarding',
+    component: () => import('@/pages/onboarding/index.vue'),
+  },
   {
     path: '/',
     component: () => import('@/pages/main-section/index.vue'),
@@ -204,7 +210,7 @@ router.onError((error) => {
   throw error
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const token = localStorage.getItem('token')
 
   if (to.fullPath === '/login') {
@@ -222,6 +228,17 @@ router.beforeEach((to) => {
       return { name: 'bots' }
     }
   }
+
+  if (to.path === '/onboarding') {
+    const completed = await ensureOnboarding()
+    return completed ? { path: '/' } : true
+  }
+
+  const completed = await ensureOnboarding()
+  if (!completed) {
+    return { path: '/onboarding' }
+  }
+
   return true
 })
 

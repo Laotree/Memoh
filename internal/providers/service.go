@@ -241,13 +241,44 @@ func (s *Service) Test(ctx context.Context, id string) (TestResponse, error) {
 
 	start := time.Now()
 	result := sdkProvider.Test(ctx)
-	latency := time.Since(start).Milliseconds()
 
-	return TestResponse{
-		Reachable: result.Status != sdk.ProviderStatusUnreachable,
-		LatencyMs: latency,
-		Message:   result.Message,
-	}, nil
+	switch result.Status {
+	case sdk.ProviderStatusUnreachable:
+		return TestResponse{
+			Status:    TestStatusError,
+			Reachable: false,
+			LatencyMs: time.Since(start).Milliseconds(),
+			Message:   result.Message,
+		}, nil
+	case sdk.ProviderStatusUnhealthy:
+		status := TestStatusError
+		if strings.Contains(result.Message, "authentication failed") {
+			status = TestStatusAuthError
+		}
+		return TestResponse{
+			Status:    status,
+			Reachable: true,
+			LatencyMs: time.Since(start).Milliseconds(),
+			Message:   result.Message,
+		}, nil
+	default:
+		if _, probeErr := sdkProvider.TestModel(ctx, "__ping__"); probeErr != nil {
+			if strings.Contains(probeErr.Error(), "authentication failed") {
+				return TestResponse{
+					Status:    TestStatusAuthError,
+					Reachable: true,
+					LatencyMs: time.Since(start).Milliseconds(),
+					Message:   probeErr.Error(),
+				}, nil
+			}
+		}
+		return TestResponse{
+			Status:    TestStatusOK,
+			Reachable: true,
+			LatencyMs: time.Since(start).Milliseconds(),
+			Message:   result.Message,
+		}, nil
+	}
 }
 
 // FetchRemoteModels fetches models from the provider's /v1/models endpoint.
@@ -313,7 +344,40 @@ func (s *Service) FetchRemoteModels(ctx context.Context, id string) ([]RemoteMod
 		return remoteModels, nil
 	}
 
+	if models.ClientType(provider.ClientType) == models.ClientTypeGoogleGenerativeAI {
+		return fetchRemoteModelsViaSDK(ctx, provider)
+	}
+
 	return fetchRemoteModelsFromProvider(ctx, provider)
+}
+
+// fetchRemoteModelsViaSDK lists a provider's models through the twilight SDK
+// instead of the hand-rolled OpenAI-style HTTP path. It is required for
+// providers whose model-listing API diverges from the OpenAI contract — e.g.
+// Google Gemini, which authenticates with x-goog-api-key (not Bearer) and
+// returns models under "models" rather than "data". The SDK provider already
+// implements this correctly and is the same one Test()/inference use.
+func fetchRemoteModelsViaSDK(ctx context.Context, provider sqlc.Provider) ([]RemoteModel, error) {
+	cfg := providerConfig(provider.Config)
+	baseURL := strings.TrimRight(configString(cfg, "base_url"), "/")
+	apiKey := configString(cfg, "api_key")
+	clientType := models.ClientType(provider.ClientType)
+
+	sdkProvider := models.NewSDKProvider(baseURL, apiKey, "", clientType, probeTimeout, nil)
+	sdkModels, err := sdkProvider.ListModels(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list models via sdk: %w", err)
+	}
+
+	remoteModels := make([]RemoteModel, 0, len(sdkModels))
+	for _, m := range sdkModels {
+		remoteModels = append(remoteModels, RemoteModel{
+			ID:   m.ID,
+			Name: m.DisplayName,
+			Type: string(models.ModelTypeChat),
+		})
+	}
+	return remoteModels, nil
 }
 
 func fetchRemoteModelsFromProvider(ctx context.Context, provider sqlc.Provider) ([]RemoteModel, error) {

@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -282,12 +283,14 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, req UpdatePr
 	if tzName == "" {
 		tzName = "UTC"
 	}
+	metadata := s.mergeMetadata(existing.Metadata, req.Metadata)
 	row, err := s.store.UpdateProfile(ctx, dbstore.UpdateAccountProfileInput{
 		UserID:      userID,
 		DisplayName: displayName,
 		AvatarURL:   avatarURL,
 		Timezone:    tzName,
 		IsActive:    existing.IsActive,
+		Metadata:    metadata,
 	})
 	if err != nil {
 		return Account{}, err
@@ -390,6 +393,10 @@ func toAccount(row dbstore.AccountRecord) Account {
 	}
 	avatarURL := strings.TrimSpace(row.AvatarURL)
 	timezone := strings.TrimSpace(row.Timezone)
+	var metadata map[string]any
+	if row.Metadata != "" {
+		_ = json.Unmarshal([]byte(row.Metadata), &metadata)
+	}
 	return Account{
 		ID:          row.ID,
 		Username:    username,
@@ -399,8 +406,41 @@ func toAccount(row dbstore.AccountRecord) Account {
 		AvatarURL:   avatarURL,
 		Timezone:    timezone,
 		IsActive:    row.IsActive,
+		Metadata:    metadata,
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 		LastLoginAt: row.LastLoginAt,
 	}
+}
+
+// mergeMetadata applies the allowlisted fields from an update request onto the
+// user's existing metadata, preserving any other existing keys. Only keys
+// enumerated in UpdateProfileMetadata can be written — arbitrary client keys are
+// impossible because incoming is a typed struct, not free-form JSON.
+func (s *Service) mergeMetadata(existing string, incoming *UpdateProfileMetadata) string {
+	if incoming == nil {
+		if existing == "" {
+			return "{}"
+		}
+		return existing
+	}
+	base := map[string]any{}
+	if existing != "" {
+		if err := json.Unmarshal([]byte(existing), &base); err != nil {
+			// Existing metadata is not valid JSON, so we can't safely merge into
+			// it. Log loudly and heal with a clean object holding only the
+			// allowlisted fields, rather than locking the user out of profile
+			// updates. Safe because nothing but allowlisted keys is written here.
+			s.logger.Error("existing user metadata is not valid JSON; healing with allowlisted fields", slog.Any("error", err))
+			base = map[string]any{}
+		}
+	}
+	if incoming.OnboardingCompleted != nil {
+		base["onboarding_completed"] = *incoming.OnboardingCompleted
+	}
+	result, err := json.Marshal(base)
+	if err != nil {
+		return "{}"
+	}
+	return string(result)
 }

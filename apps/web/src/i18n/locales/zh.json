@@ -1005,14 +1005,14 @@
     },
     "createBotLocalHint": "Local Bot 会使用这台电脑上的文件夹，且不提供沙箱隔离。",
     "workspaceBackend": "工作区",
-    "workspaceBackendHint": "容器工作区提供隔离；Local 工作区会直接在这台电脑上运行。",
+    "workspaceBackendHint": "容器工作区提供隔离；本地文件夹会直接在宿主机上运行。",
     "workspaceBackends": {
       "container": "容器",
       "local": "本地文件夹"
     },
     "localWorkspacePath": "本地工作区文件夹",
     "localWorkspacePathPlaceholder": "选择这台电脑上的文件夹",
-    "localWorkspaceWarning": "Local 工作区将直接以服务器用户权限运行，具有操作宿主机文件与执行命令的完整权限。",
+    "localWorkspaceWarning": "本地工作区将以宿主用户权限运行，具有操作宿主机文件与执行命令的完整权限",
     "editBot": "编辑 Bot",
     "deleteConfirm": "确定要删除这个 Bot 吗？",
     "renameSuccess": "Bot 名称已更新",
@@ -2046,5 +2046,102 @@
   },
   "languages": {
     "auto": "自动"
+  },
+  "onboarding": {
+    "prev": "上一步",
+    "next": "下一步",
+    "skip": "跳过",
+    "start": "开始",
+    "welcome": {
+      "title": "欢迎使用 Memoh",
+      "subtitle": "你的私有化 AI 智能体平台",
+      "description": "只需几步，完成你的专属工作空间配置。"
+    },
+    "intro": {
+      "title": "欢迎使用 Memoh",
+      "description": "你的私有化 AI 智能体平台，自托管部署，\n零遥测，为开发者打造",
+      "placeholder": "介绍页内容即将推出。"
+    },
+    "appearance": {
+      "title": "选择你的风格",
+      "language": "语言",
+      "theme": "主题",
+      "colorScheme": "配色方案",
+      "light": "浅色",
+      "dark": "深色"
+    },
+    "provider": {
+      "title": "配置 AI 服务商",
+      "placeholder": "服务商配置即将推出。",
+      "description": "选择常用服务商，配置 API 密钥即可开始使用。",
+      "custom": "自定义",
+      "form": {
+        "name": "名称",
+        "namePlaceholder": "例如：我的 OpenAI",
+        "apiKey": "API 密钥",
+        "apiKeyPlaceholder": "sk-...",
+        "baseUrl": "Base URL",
+        "baseUrlPlaceholder": "https://api.example.com/v1",
+        "clientType": "API 格式",
+        "clientTypePlaceholder": "选择 API 格式",
+        "save": "保存",
+        "saving": "保存中...",
+        "importing": "导入模型中...",
+        "cancel": "取消",
+        "requiredError": "请填写所有字段",
+        "saveFailed": "保存失败",
+        "typeConflict": "已存在同名但 API 格式不同的服务商，请换一个名称。",
+        "errorHttpTitle": "连接失败",
+        "errorHttpDescription": "请检查 API 密钥与接口地址是否正确。",
+        "errorAuthTitle": "API 密钥无效",
+        "errorAuthDescription": "服务商拒绝了你的 API 密钥，请确认密钥是否正确且未过期。",
+        "errorUnreachableTitle": "无法连接服务商",
+        "errorUnreachableDescription": "无法连接到该服务商，请确认 API 密钥和接口地址是否正确。",
+        "errorNoModelsTitle": "未获取到模型",
+        "errorNoModelsDescription": "服务商可能不提供模型列表接口，你可以重试或手动添加模型。",
+        "retry": "重试",
+        "manualAdd": "手动添加",
+        "skipStep": "跳过此步",
+        "manualAddTitle": "手动添加模型",
+        "manualAddEmpty": "尚未添加模型",
+        "manualAddBtn": "添加",
+        "manualAddedCount": "已添加 {count} 个模型",
+        "removeModel": "移除"
+      }
+    },
+    "bot": {
+      "title": "创建你的第一个 Bot",
+      "placeholder": "Bot 创建即将推出。",
+      "preparingEnvironment": "正在准备环境...",
+      "model": {
+        "selectPlaceholder": "选择模型",
+        "hint": "选择 Bot 回复时使用的模型。建议现在选择，之后也可随时在设置中更改。"
+      }
+    },
+    "im": {
+      "title": "接入 IM 渠道",
+      "placeholder": "IM 接入即将推出。"
+    },
+    "complete": {
+      "title": "一切就绪",
+      "subtitle": "进入 Memoh，开始你的第一段对话",
+      "action": "打开 Memoh",
+      "cards": {
+        "im": {
+          "title": "IM 接入",
+          "desc": "把 Bot 部署到 Telegram 等渠道"
+        },
+        "voice": {
+          "title": "语音对话",
+          "desc": "语音合成与转写让 Bot 开口"
+        },
+        "search": {
+          "title": "网络搜索",
+          "desc": "接入搜索引擎，让 Bot 获取实时信息"
+        }
+      },
+      "saveFailed": "保存失败，请重试",
+      "noProviderWarning": "你尚未配置 AI 服务商，Bot 将无法回复消息。请前往 设置 → 服务商 添加"
+    }
   }
 }

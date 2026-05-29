@@ -1016,7 +1016,7 @@
     },
     "localWorkspacePath": "Local workspace folder",
     "localWorkspacePathPlaceholder": "Choose a folder on this computer",
-    "localWorkspaceWarning": "Local workspaces run directly on the host using the server's permissions, giving them full access to local files and commands.",
+    "localWorkspaceWarning": "Local workspaces run with host user permissions and have full access to host files and commands",
     "editBot": "Edit Bot",
     "deleteConfirm": "Are you sure you want to delete this bot?",
     "renameSuccess": "Bot name updated",
@@ -2050,5 +2050,102 @@
   },
   "languages": {
     "auto": "Auto"
+  },
+  "onboarding": {
+    "prev": "Previous",
+    "next": "Next",
+    "skip": "Skip",
+    "start": "Get Started",
+    "welcome": {
+      "title": "Welcome to Memoh",
+      "subtitle": "Your private AI agent platform",
+      "description": "Let's set up your workspace in a few steps."
+    },
+    "intro": {
+      "title": "Welcome to Memoh",
+      "description": "Your private AI agent platform, on your own infra.\nZero telemetry, fully self-hosted.",
+      "placeholder": "Introduction page content coming soon."
+    },
+    "appearance": {
+      "title": "Choose your style",
+      "language": "Language",
+      "theme": "Theme",
+      "colorScheme": "Color Scheme",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "provider": {
+      "title": "Configure AI Provider",
+      "placeholder": "Provider configuration coming soon.",
+      "description": "Pick a provider and drop in your API key.",
+      "custom": "Custom",
+      "form": {
+        "name": "Name",
+        "namePlaceholder": "e.g. My OpenAI",
+        "apiKey": "API Key",
+        "apiKeyPlaceholder": "sk-...",
+        "baseUrl": "Base URL",
+        "baseUrlPlaceholder": "https://api.example.com/v1",
+        "clientType": "API Format",
+        "clientTypePlaceholder": "Select API format",
+        "save": "Save",
+        "saving": "Saving...",
+        "importing": "Importing models...",
+        "cancel": "Cancel",
+        "requiredError": "Please fill in all fields",
+        "saveFailed": "Failed to save provider",
+        "typeConflict": "A provider with this name already exists with a different API format. Please use a different name.",
+        "errorHttpTitle": "Connection failed",
+        "errorHttpDescription": "Please check your API key and base URL.",
+        "errorAuthTitle": "Invalid API key",
+        "errorAuthDescription": "The provider rejected your API key. Please check that it is correct and has not expired.",
+        "errorUnreachableTitle": "Provider unreachable",
+        "errorUnreachableDescription": "Could not connect to this provider. Please verify your API key and base URL are correct.",
+        "errorNoModelsTitle": "No models received",
+        "errorNoModelsDescription": "This provider may not expose a model list. You can retry or add models manually.",
+        "retry": "Retry",
+        "manualAdd": "Add manually",
+        "skipStep": "Skip this step",
+        "manualAddTitle": "Add models manually",
+        "manualAddEmpty": "No models added yet",
+        "manualAddBtn": "Add",
+        "manualAddedCount": "{count} model(s) added",
+        "removeModel": "Remove"
+      }
+    },
+    "bot": {
+      "title": "Create Your First Bot",
+      "placeholder": "Bot creation coming soon.",
+      "preparingEnvironment": "Preparing environment...",
+      "model": {
+        "selectPlaceholder": "Select a model",
+        "hint": "Pick the model your bot replies with. Recommended, but you can change it anytime in settings."
+      }
+    },
+    "im": {
+      "title": "Connect IM Channels",
+      "placeholder": "IM integration coming soon."
+    },
+    "complete": {
+      "title": "You're All Set",
+      "subtitle": "Open Memoh and start your first conversation",
+      "action": "Open Memoh",
+      "cards": {
+        "im": {
+          "title": "IM channels",
+          "desc": "Deploy your bot to Telegram and beyond"
+        },
+        "voice": {
+          "title": "Voice chat",
+          "desc": "TTS and STT give your bot a voice"
+        },
+        "search": {
+          "title": "Web search",
+          "desc": "Plug in search engines for real-time info"
+        }
+      },
+      "saveFailed": "Failed to save, please try again",
+      "noProviderWarning": "You haven't configured an AI provider yet. Your bot won't be able to reply until you add one in Settings → Providers"
+    }
   }
 }
